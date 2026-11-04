@@ -95,7 +95,13 @@
       <!-- テキスト -->
       <div id="propText" class="hidden space-y-3">
         <div><label class="lbl">テキスト内容</label><textarea id="tText" rows="3" class="field"></textarea></div>
-        <div><label class="lbl">フォント</label><select id="tFont" class="field"></select></div>
+        <div>
+          <label class="lbl">フォント <span class="text-zinc-500">（カーソルを乗せるとプレビュー）</span></label>
+          <div class="relative" id="fontDD">
+            <button type="button" id="tFontBtn" class="field flex items-center justify-between text-left cursor-pointer"><span id="tFontName" class="truncate"></span><i class="fa-solid fa-chevron-down text-zinc-500 text-[10px] ml-2"></i></button>
+            <div id="tFontList" class="hidden absolute z-30 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-600 bg-zinc-900 shadow-xl"></div>
+          </div>
+        </div>
         <div class="flex gap-2 items-end">
           <div class="flex-1"><label class="lbl">サイズ(px)</label><input type="number" id="tSize" min="8" max="600" class="field"></div>
           <div><label class="lbl">色</label><input type="color" id="tColor"></div>
@@ -687,9 +693,33 @@
 
 
   // 太字/斜体/揃え/ワープ UI
-  FONTS.forEach(([v, l]) => { const op = document.createElement('option'); op.value = v; op.textContent = l; op.style.fontFamily = `"${v}"`; $('#tFont').appendChild(op); });
+  // フォント選択: 項目にカーソルを乗せるとリアルタイムで反映、クリックで確定、閉じると元に戻す
+  let fontOrig = null;
+  const fontList = $('#tFontList');
+  const fontLabel = f => (FONTS.find(x => x[0] === f) || [f, f])[1];
+  const curFont = () => { const o = canvas.getActiveObject(); return o && o.popData ? o.popData.fontFamily : null; };
+  function closeFontList(commit) {
+    if (fontList.classList.contains('hidden')) return;
+    fontList.classList.add('hidden');
+    if (!commit && fontOrig !== null && curFont() !== null && curFont() !== fontOrig) updateText({ fontFamily: fontOrig });
+    fontOrig = null;
+  }
+  FONTS.forEach(([v, l]) => {
+    const it = document.createElement('div');
+    it.className = 'px-3 py-2 cursor-pointer hover:bg-sky-900 text-sm truncate'; it.dataset.font = v;
+    it.textContent = l; it.style.fontFamily = `"${v}", sans-serif`;
+    it.onmouseenter = () => { if (curFont() !== v) updateText({ fontFamily: v }); };
+    it.onclick = () => { fontOrig = v; updateText({ fontFamily: v }); closeFontList(true); };
+    fontList.appendChild(it);
+  });
+  $('#tFontBtn').onclick = () => {
+    if (!fontList.classList.contains('hidden')) { closeFontList(false); return; }
+    fontOrig = curFont(); fontList.classList.remove('hidden');
+    const cur = fontList.querySelector('.text-sky-400'); if (cur) cur.scrollIntoView({ block: 'center' });
+  };
+  document.addEventListener('mousedown', e => { if (!e.target.closest('#fontDD')) closeFontList(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFontList(false); });
   $('#tText').oninput = e => updateText({ text: e.target.value });
-  $('#tFont').onchange = e => updateText({ fontFamily: e.target.value });
   $('#tSize').oninput = e => { const v = parseFloat(e.target.value); if (v >= 8) updateText({ fontSize: v }); };
   $('#tColor').oninput = e => updateText({ fill: e.target.value });
   $('#tBold').onclick = () => { const o = canvas.getActiveObject(); if (o?.popData) updateText({ bold: !o.popData.bold }); };
@@ -786,7 +816,8 @@
     if (isText) {
       const d = o.popData;
       if (document.activeElement !== $('#tText')) $('#tText').value = d.text;
-      $('#tFont').value = d.fontFamily;
+      $('#tFontName').textContent = fontLabel(d.fontFamily); $('#tFontName').style.fontFamily = `"${d.fontFamily}", sans-serif`;
+      $$('#tFontList [data-font]').forEach(it => it.classList.toggle('text-sky-400', it.dataset.font === d.fontFamily));
       if (document.activeElement !== $('#tSize')) $('#tSize').value = Math.round(d.fontSize);
       $('#tColor').value = /^#[0-9a-f]{6}$/i.test(d.fill) ? d.fill : '#000000';
       $('#tWarp').value = d.warp;

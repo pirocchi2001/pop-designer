@@ -108,6 +108,13 @@
           <button class="btn" data-align="right" title="右揃え"><i class="fa-solid fa-align-right"></i></button>
         </div>
         <div>
+          <label class="lbl">書字方向</label>
+          <div class="grid grid-cols-2 gap-1">
+            <button id="tHoriz" class="btn"><i class="fa-solid fa-grip-lines"></i> 横書き</button>
+            <button id="tVert" class="btn"><i class="fa-solid fa-grip-lines-vertical"></i> 縦書き</button>
+          </div>
+        </div>
+        <div>
           <label class="lbl">文字ワープ（変形）</label>
           <select id="tWarp" class="field">
             <option value="none">なし (ストレート)</option>
@@ -120,6 +127,11 @@
         <div id="tCurveWrap" class="hidden">
           <label class="lbl">曲がり具合: <span id="tCurveVal">40</span></label>
           <input type="range" id="tCurve" min="0" max="100" value="40">
+        </div>
+        <div class="pt-3 border-t border-zinc-800">
+          <label class="lbl">エフェクト（ワンタッチ）</label>
+          <div id="fxPresets" class="grid grid-cols-3 gap-1 mb-2"></div>
+          <div id="fxList" class="space-y-2"></div>
         </div>
       </div>
 
@@ -378,28 +390,63 @@
   window.addEventListener('drop', e => e.preventDefault());
 
   // ---------- テキスト ----------
+  const fxDefault = () => ({
+    stroke: { on: false, color: '#ffffff', width: 6 },
+    shadow: { on: false, color: '#000000', blur: 8, x: 4, y: 4 },
+    offset: { on: false, color: '#111111', x: 8, y: 8 },
+    dots:   { on: false, color: '#ff4d4d', size: 12 },
+    fur:    { on: false, color: '#ff7eb6', len: 14 }
+  });
   const defaultText = kind => {
     const light = isDark(canvas.backgroundColor);
+    const base = { vertical: false, align: 'center', warp: 'none', curve: 40, italic: false, bold: true, fx: fxDefault() };
     return kind === 'head'
-      ? { text: '見出しテキスト', fontFamily: 'M PLUS Rounded 1c', fontSize: 90, fill: light ? '#ffffff' : '#d90429', bold: true, italic: false, align: 'center', warp: 'none', curve: 40 }
-      : { text: '¥1,980', fontFamily: 'Noto Sans JP', fontSize: 64, fill: light ? '#ffffff' : '#111111', bold: true, italic: false, align: 'center', warp: 'none', curve: 40 };
+      ? { ...base, text: '見出しテキスト', fontFamily: 'M PLUS Rounded 1c', fontSize: 90, fill: light ? '#ffffff' : '#d90429' }
+      : { ...base, text: '¥1,980', fontFamily: 'Noto Sans JP', fontSize: 64, fill: light ? '#ffffff' : '#111111' };
   };
   const ctxMeasure = document.createElement('canvas').getContext('2d');
+  const needsGroup = d => d.vertical || d.warp !== 'none' || d.fx.offset.on || d.fx.dots.on || d.fx.fur.on;
+  const VROT = new Set([...'ー－―—–〜～…()（）「」『』【】〔〕[]{}<>＜＞=＝+-']);
+  const VPUNCT = new Set([...'、。，．,.']);
+  const shade = (hex, f) => { // f>0 明るく / f<0 暗く
+    const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    const t = f > 0 ? 255 : 0, a = Math.abs(f);
+    r = Math.round(r + (t - r) * a); g = Math.round(g + (t - g) * a); b = Math.round(b + (t - b) * a);
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  };
 
-  function buildWarpGroup(d) {
+  // 文字の配置(1文字ずつ): 横書き(ワープ含む) / 縦書き
+  function layoutChars(d) {
     const size = d.fontSize, lh = size * 1.25, c = Math.max(d.curve / 100, 0.01);
     ctxMeasure.font = `${d.italic ? 'italic ' : ''}${d.bold ? 700 : 400} ${size}px "${d.fontFamily}"`;
     const lines = (d.text || ' ').split('\n');
-    const chars = [];
+    const out = [];
+    if (d.vertical) {
+      const adv = size, colW = size * 1.2;
+      const maxLen = Math.max(...lines.map(l => [...l].length)) * adv;
+      lines.forEach((line, li) => {
+        const arr = [...line], total = arr.length * adv;
+        const x = ((lines.length - 1) / 2 - li) * colW; // 右の行から左へ
+        const y0 = d.align === 'left' ? -maxLen / 2 : d.align === 'right' ? maxLen / 2 - total : -total / 2;
+        arr.forEach((ch, i) => {
+          if (/\s/.test(ch)) return;
+          let px = x, py = y0 + i * adv + adv / 2, rot = 0;
+          if (VROT.has(ch)) rot = 90;
+          else if (VPUNCT.has(ch)) { px += size * 0.5; py -= size * 0.5; }
+          out.push({ ch, x: px, y: py, rot });
+        });
+      });
+      return out;
+    }
     let R0 = 0, phiCircle = 0;
+    const widths = lines.map(l => { const ws = [...l].map(ch => ctxMeasure.measureText(ch).width); return { ws, L: ws.reduce((a, b) => a + b, 0) || 1 }; });
+    const maxL = Math.max(...widths.map(w => w.L));
     lines.forEach((line, li) => {
-      const arr = [...line];
-      const ws = arr.map(ch => ctxMeasure.measureText(ch).width);
-      const L = ws.reduce((a, b) => a + b, 0) || 1;
+      const arr = [...line], { ws, L } = widths[li];
       let s = 0;
       arr.forEach((ch, i) => {
         const sc = s + ws[i] / 2; s += ws[i];
-        let x, y, rot;
+        let x, y, rot = 0;
         if (d.warp === 'archUp' || d.warp === 'archDown') {
           const phi = c * Math.PI * 1.6, R = L / phi, a = (sc / L - 0.5) * phi;
           x = R * Math.sin(a);
@@ -410,36 +457,117 @@
           const amp = c * size * 1.5, k = 2 * Math.PI / L;
           x = sc - L / 2; y = amp * Math.sin(k * sc) + li * lh;
           rot = Math.atan(amp * k * Math.cos(k * sc)) * 180 / Math.PI;
-        } else { // circle
-          if (li === 0 && i === 0) { phiCircle = (0.25 + 0.75 * c) * 2 * Math.PI; R0 = L / phiCircle; }
+        } else if (d.warp === 'circle') {
+          if (!phiCircle) { phiCircle = (0.25 + 0.75 * c) * 2 * Math.PI; R0 = L / phiCircle; }
           const R = Math.max(R0 - li * lh, size * 0.3), a = (sc / L) * phiCircle;
           x = R * Math.sin(a); y = -R * Math.cos(a); rot = a * 180 / Math.PI;
+        } else {
+          const x0 = d.align === 'left' ? -maxL / 2 : d.align === 'right' ? maxL / 2 - L : -L / 2;
+          x = x0 + sc; y = (li - (lines.length - 1) / 2) * lh;
         }
         if (/\s/.test(ch)) return;
-        chars.push(new fabric.Text(ch, {
-          left: x, top: y, originX: 'center', originY: 'center', angle: rot,
-          fontFamily: d.fontFamily, fontSize: size, fill: d.fill,
-          fontWeight: d.bold ? 'bold' : 'normal', fontStyle: d.italic ? 'italic' : 'normal'
-        }));
+        out.push({ ch, x, y, rot });
       });
     });
-    if (!chars.length) chars.push(new fabric.Rect({ left: 0, top: 0, width: 10, height: 10, originX: 'center', originY: 'center', fill: 'rgba(0,0,0,0)' }));
-    return new fabric.Group(chars, { originX: 'center', originY: 'center', objectCaching: false, subTargetCheck: false });
+    return out;
+  }
+  function mkText(p, d, st) {
+    return new fabric.Text(p.ch, {
+      left: p.x + (st.dx || 0), top: p.y + (st.dy || 0), originX: 'center', originY: 'center', angle: p.rot,
+      fontFamily: d.fontFamily, fontSize: d.fontSize, fontWeight: d.bold ? 'bold' : 'normal', fontStyle: d.italic ? 'italic' : 'normal',
+      fill: st.fill, stroke: st.stroke || null, strokeWidth: st.sw || 0, paintFirst: 'stroke', strokeLineJoin: 'round', objectCaching: false
+    });
+  }
+  function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+  // 網点・ファーは、同じ fabric.Text を一時キャンバスに描いて加工したビットマップとして重ねる
+  function rasterFill(P, d, B) {
+    const fx = d.fx, res = Math.min(2, 4000 / Math.max(B.w, B.h));
+    const sc = new fabric.StaticCanvas(null, { width: B.w, height: B.h, renderOnAddRemove: false });
+    P.forEach(p => sc.add(mkText({ ...p, x: p.x - B.cx + B.w / 2, y: p.y - B.cy + B.h / 2 }, d, { fill: d.fill })));
+    let cv = sc.toCanvasElement(res); sc.dispose();
+    const ctx = cv.getContext('2d');
+    if (fx.dots.on) { // 45度ずらしのハーフトーン網点（文字の内側だけ）
+      const s = fx.dots.size, r = s * 0.3;
+      ctx.save(); ctx.globalCompositeOperation = 'source-atop'; ctx.scale(cv.width / B.w, cv.height / B.h);
+      ctx.fillStyle = fx.dots.color; ctx.beginPath();
+      for (let j = 0; j * s / 2 <= B.h + s; j++) for (let i = -1; i * s <= B.w + s; i++) {
+        const x = i * s + (j % 2) * s / 2, y = j * s / 2; ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
+      }
+      ctx.fill(); ctx.restore();
+    }
+    if (fx.fur.on) {
+      const out = document.createElement('canvas'); out.width = cv.width; out.height = cv.height;
+      const o2 = out.getContext('2d'), len = fx.fur.len * res, rr = len * 0.4;
+      const tint = document.createElement('canvas'); tint.width = cv.width; tint.height = cv.height;
+      const t2 = tint.getContext('2d'); t2.drawImage(cv, 0, 0);
+      t2.globalCompositeOperation = 'source-in'; t2.fillStyle = shade(fx.fur.color, -0.3); t2.fillRect(0, 0, tint.width, tint.height);
+      for (const k of [1, 0.5]) for (let a = 0; a < 16; a++) { // 文字を膨らませた毛のかたまり
+        const an = a / 16 * Math.PI * 2; o2.drawImage(tint, Math.cos(an) * rr * k, Math.sin(an) * rr * k);
+      }
+      o2.drawImage(cv, 0, 0);
+      const img = o2.getImageData(0, 0, out.width, out.height), px = img.data, cand = [], st = 2;
+      for (let y = 0; y < out.height; y += st) for (let x = 0; x < out.width; x += st) if (px[(y * out.width + x) * 4 + 3] > 128) cand.push(x, y);
+      const rnd = mulberry32(7), n = Math.min(20000, Math.round(cand.length / 2 * st * st / (res * res) * 0.05));
+      o2.lineCap = 'round';
+      for (let h = 0; h < n; h++) {
+        const ci = Math.floor(rnd() * cand.length / 2) * 2, x = cand[ci], y = cand[ci + 1];
+        const an = rnd() * Math.PI * 2, L = len * (0.4 + 0.6 * rnd()), bend = (rnd() - 0.5) * L * 0.6;
+        const ex = x + Math.cos(an) * L, ey = y + Math.sin(an) * L;
+        o2.strokeStyle = shade(fx.fur.color, (rnd() - 0.4) * 0.5); o2.lineWidth = res * (0.7 + rnd() * 0.8);
+        o2.beginPath(); o2.moveTo(x, y);
+        o2.quadraticCurveTo((x + ex) / 2 - Math.sin(an) * bend, (y + ey) / 2 + Math.cos(an) * bend, ex, ey); o2.stroke();
+      }
+      cv = out;
+    }
+    return cv;
+  }
+
+  function buildGroup(d) {
+    const P = layoutChars(d), fx = d.fx, size = d.fontSize, objs = [];
+    if (!P.length) objs.push(new fabric.Rect({ left: 0, top: 0, width: 10, height: 10, originX: 'center', originY: 'center', fill: 'rgba(0,0,0,0)' }));
+    else {
+      const xs = P.map(p => p.x), ys = P.map(p => p.y);
+      const pad = (fx.fur.on ? fx.fur.len * 1.3 : 0) + 6, m = size * 0.8 + pad;
+      const minX = Math.min(...xs) - m, maxX = Math.max(...xs) + m, minY = Math.min(...ys) - m, maxY = Math.max(...ys) + m;
+      const B = { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, w: maxX - minX, h: maxY - minY };
+      const strokeOn = fx.stroke.on && !fx.fur.on;
+      if (fx.offset.on) { // 文字のオフセット（ずらした立体コピーを後ろに重ねる）
+        const dist = Math.hypot(fx.offset.x, fx.offset.y), steps = clamp(Math.ceil(dist / 1.5), 1, P.length > 24 ? 10 : 28);
+        const sw = Math.max(dist / steps * 1.3, strokeOn ? fx.stroke.width * 2 : 0, 0.01);
+        for (let s = steps; s >= 1; s--) P.forEach(p => objs.push(mkText(p, d, {
+          fill: fx.offset.color, stroke: fx.offset.color, sw, dx: fx.offset.x * s / steps, dy: fx.offset.y * s / steps })));
+      }
+      if (strokeOn) P.forEach(p => objs.push(mkText(p, d, { fill: fx.stroke.color, stroke: fx.stroke.color, sw: fx.stroke.width * 2 })));
+      if (fx.dots.on || fx.fur.on) {
+        const cv = rasterFill(P, d, B);
+        objs.push(new fabric.Image(cv, { originX: 'center', originY: 'center', left: B.cx, top: B.cy, scaleX: B.w / cv.width, scaleY: B.h / cv.height }));
+      } else P.forEach(p => objs.push(mkText(p, d, { fill: d.fill })));
+    }
+    const g = new fabric.Group(objs, { originX: 'center', originY: 'center', objectCaching: false, subTargetCheck: false });
+    if (fx.shadow.on) g.set('shadow', new fabric.Shadow({ color: fx.shadow.color, blur: fx.shadow.blur, offsetX: fx.shadow.x, offsetY: fx.shadow.y }));
+    return g;
+  }
+  function applyITextProps(o, d) {
+    const fx = d.fx;
+    o.set({
+      text: d.text, fontFamily: d.fontFamily, fontSize: d.fontSize, fill: d.fill,
+      fontWeight: d.bold ? 'bold' : 'normal', fontStyle: d.italic ? 'italic' : 'normal', textAlign: d.align,
+      stroke: fx.stroke.on ? fx.stroke.color : null, strokeWidth: fx.stroke.on ? fx.stroke.width * 2 : 0,
+      paintFirst: 'stroke', strokeLineJoin: 'round',
+      shadow: fx.shadow.on ? new fabric.Shadow({ color: fx.shadow.color, blur: fx.shadow.blur, offsetX: fx.shadow.x, offsetY: fx.shadow.y }) : null
+    });
   }
   function createTextObj(d) {
     let o;
-    if (d.warp === 'none') {
-      o = new fabric.IText(d.text, {
-        originX: 'center', originY: 'center', fontFamily: d.fontFamily, fontSize: d.fontSize, fill: d.fill,
-        fontWeight: d.bold ? 'bold' : 'normal', fontStyle: d.italic ? 'italic' : 'normal',
-        textAlign: d.align, lineHeight: 1.2
-      });
-    } else o = buildWarpGroup(d);
+    if (!needsGroup(d)) { o = new fabric.IText(d.text, { originX: 'center', originY: 'center', lineHeight: 1.2 }); applyITextProps(o, d); }
+    else o = buildGroup(d);
     o.popData = d;
     o.lockUniScaling = true;
     o.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false });
     return o;
   }
+
   // 既存テキストを新しい定義で作り直して同じ位置・重ね順に差し替える
   // (fabric.Group に removeAll は無いので、Group は丸ごと再生成する)
   function rebuildText(old) {
@@ -469,19 +597,80 @@
   $('#addHead').onclick = () => addText('head');
   $('#addBody').onclick = () => addText('body');
 
+  let fxRaf = 0;
   function updateText(patch) {
     const o = canvas.getActiveObject();
     if (!o || !o.popData) return;
     const d = o.popData; Object.assign(d, patch);
-    ensureFont(d, () => {
+    cancelAnimationFrame(fxRaf);
+    fxRaf = requestAnimationFrame(() => ensureFont(d, () => {
       if (!canvas.contains(o)) return;
-      if (d.warp === 'none' && o.type === 'i-text') {
-        o.set({ text: d.text, fontFamily: d.fontFamily, fontSize: d.fontSize, fill: d.fill,
-          fontWeight: d.bold ? 'bold' : 'normal', fontStyle: d.italic ? 'italic' : 'normal', textAlign: d.align });
-        o.initDimensions(); o.setCoords(); canvas.requestRenderAll(); renderLayers(); updateTextButtons(d);
+      if (!needsGroup(d) && o.type === 'i-text') {
+        applyITextProps(o, d); o.initDimensions(); o.setCoords(); canvas.requestRenderAll(); sync();
       } else rebuildText(o);
+    }));
+  }
+
+  // ---- エフェクト UI（既存の btn / lbl / field スタイルをそのまま使用）----
+  const FX_UI = [
+    ['stroke', 'ふち取り', [['color', '色', 'color'], ['width', '太さ', 'range', 0, 40]]],
+    ['shadow', '影（シャドー）', [['color', '色', 'color'], ['blur', 'ぼかし', 'range', 0, 60], ['x', '横', 'range', -60, 60], ['y', '縦', 'range', -60, 60]]],
+    ['offset', 'オフセット（立体ずらし）', [['color', '色', 'color'], ['x', '横', 'range', -80, 80], ['y', '縦', 'range', -80, 80]]],
+    ['dots', 'コミック・網点', [['color', 'ドット色', 'color'], ['size', 'ドット間隔', 'range', 5, 40]]],
+    ['fur', 'ファー・もふもふ', [['color', '毛の色', 'color'], ['len', '毛の長さ', 'range', 4, 40]]]
+  ];
+  const fxEls = {};
+  FX_UI.forEach(([key, label, params]) => {
+    const box = document.createElement('div'); box.className = 'rounded-lg border border-zinc-700 p-2';
+    const head = document.createElement('label'); head.className = 'flex items-center gap-2 text-xs font-bold cursor-pointer';
+    const chk = document.createElement('input'); chk.type = 'checkbox'; chk.style.accentColor = '#0ea5e9';
+    head.append(chk, document.createTextNode(label));
+    const body = document.createElement('div'); body.className = 'hidden mt-2 space-y-2';
+    const inputs = {};
+    params.forEach(([k, l, type, min, max]) => {
+      const row = document.createElement('div'), lb = document.createElement('label'), val = document.createElement('span');
+      lb.className = 'lbl'; lb.append(document.createTextNode(l + (type === 'range' ? ': ' : '')), val);
+      const inp = document.createElement('input'); inp.type = type; if (type === 'range') { inp.min = min; inp.max = max; }
+      inp.oninput = () => {
+        const o = canvas.getActiveObject(); if (!o || !o.popData) return;
+        o.popData.fx[key][k] = type === 'range' ? +inp.value : inp.value;
+        if (type === 'range') val.textContent = inp.value;
+        updateText({});
+      };
+      row.append(lb, inp); body.append(row); inputs[k] = { inp, val, type };
+    });
+    chk.onchange = () => {
+      const o = canvas.getActiveObject(); if (!o || !o.popData) return;
+      o.popData.fx[key].on = chk.checked; body.classList.toggle('hidden', !chk.checked); updateText({});
+    };
+    box.append(head, body); $('#fxList').append(box); fxEls[key] = { chk, body, inputs };
+  });
+  function refreshFx(d) {
+    FX_UI.forEach(([key, , params]) => {
+      const f = d.fx[key], e = fxEls[key];
+      e.chk.checked = f.on; e.body.classList.toggle('hidden', !f.on);
+      params.forEach(([k]) => { const { inp, val, type } = e.inputs[k]; inp.value = f[k]; if (type === 'range') val.textContent = f[k]; });
     });
   }
+  const PRESETS = [
+    ['なし', d => { d.fx = fxDefault(); }],
+    ['ふち文字', d => { d.fx = fxDefault(); d.fx.stroke = { on: true, color: isDark(d.fill) ? '#ffffff' : '#111111', width: 8 }; }],
+    ['コミック', d => { d.fx = fxDefault(); d.fill = '#ffe600'; d.bold = true;
+      d.fx.stroke = { on: true, color: '#111111', width: 7 }; d.fx.offset = { on: true, color: '#111111', x: 8, y: 8 };
+      d.fx.dots = { on: true, color: '#ff3b30', size: 11 }; }],
+    ['立体', d => { d.fx = fxDefault(); d.fx.offset = { on: true, color: shade(d.fill, isDark(d.fill) ? 0.5 : -0.45), x: 10, y: 10 }; }],
+    ['もふもふ', d => { d.fx = fxDefault(); d.fill = '#ffd6e8'; d.fx.fur = { on: true, color: '#ff8fc0', len: 14 }; }],
+    ['ネオン', d => { d.fx = fxDefault(); d.fill = '#ffffff';
+      d.fx.stroke = { on: true, color: '#22d3ee', width: 2 }; d.fx.shadow = { on: true, color: '#22d3ee', blur: 26, x: 0, y: 0 }; }]
+  ];
+  PRESETS.forEach(([name, fn]) => {
+    const b = document.createElement('button'); b.className = 'btn'; b.textContent = name;
+    b.onclick = () => { const o = canvas.getActiveObject(); if (!o || !o.popData) return; fn(o.popData); updateText({}); };
+    $('#fxPresets').appendChild(b);
+  });
+  $('#tHoriz').onclick = () => updateText({ vertical: false });
+  $('#tVert').onclick = () => updateText({ vertical: true });
+
 
   // 太字/斜体/揃え/ワープ UI
   FONTS.forEach(([v, l]) => { const op = document.createElement('option'); op.value = v; op.textContent = l; op.style.fontFamily = `"${v}"`; $('#tFont').appendChild(op); });
@@ -498,6 +687,7 @@
   };
   $('#tCurve').oninput = e => { $('#tCurveVal').textContent = e.target.value; updateText({ curve: +e.target.value }); };
   function updateTextButtons(d) {
+    $('#tHoriz').classList.toggle('on', !d.vertical); $('#tVert').classList.toggle('on', !!d.vertical);
     $('#tBold').classList.toggle('on', d.bold); $('#tItalic').classList.toggle('on', d.italic);
     $$('[data-align]').forEach(b => b.classList.toggle('on', b.dataset.align === d.align));
   }
@@ -522,7 +712,11 @@
   $('#iFlipY').onclick = () => { const o = activeImage(); if (o) { o.set('flipY', !o.flipY); canvas.requestRenderAll(); } };
   $('#iUncrop').onclick = () => { const o = activeImage(); if (o) { o.clipPath = null; o.dirty = true; canvas.requestRenderAll(); refreshInspector(); } };
   $('#iCrop').onclick = () => { const o = activeImage(); if (o) openCrop(o); };
-  canvas.on('mouse:dblclick', e => { if (e.target && e.target.type === 'image') openCrop(e.target); });
+  canvas.on('mouse:dblclick', e => {
+    const t = e.target;
+    if (t && t.type === 'image') openCrop(t);
+    else if (t && t.popData && t.type === 'group') { $('#tText').focus(); toast('エフェクト付き文字は、左のプロパティで内容を編集できます'); }
+  });
 
   // ---------- 共通プロパティ ----------
   $('#oOp').oninput = e => { const o = canvas.getActiveObject(); if (!o) return; o.set('opacity', e.target.value / 100); $('#oOpVal').textContent = e.target.value; canvas.requestRenderAll(); };
@@ -545,7 +739,7 @@
   $('#oDup').onclick = () => {
     const o = canvas.getActiveObject(); if (!o) return;
     if (o.popData) {
-      const n = createTextObj({ ...o.popData }); n.set({ angle: o.angle, opacity: o.opacity });
+      const n = createTextObj(JSON.parse(JSON.stringify(o.popData))); n.set({ angle: o.angle, opacity: o.opacity });
       const c = o.getCenterPoint(); moveCenter(n, c.x + 24, c.y + 24);
       canvas.add(n); canvas.setActiveObject(n); canvas.requestRenderAll();
     } else {
@@ -583,7 +777,9 @@
       $('#tColor').value = /^#[0-9a-f]{6}$/i.test(d.fill) ? d.fill : '#000000';
       $('#tWarp').value = d.warp;
       $('#tCurve').value = d.curve; $('#tCurveVal').textContent = d.curve;
-      $('#tCurveWrap').classList.toggle('hidden', d.warp === 'none');
+      $('#tWarp').disabled = !!d.vertical;
+      $('#tCurveWrap').classList.toggle('hidden', d.warp === 'none' || !!d.vertical);
+      refreshFx(d);
       updateTextButtons(d);
     }
     if (isImg) {

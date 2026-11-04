@@ -33,6 +33,7 @@
   .btn-danger{color:#c62828;border-color:#efc4c4}
   .btn-danger:hover{background:#fff3f3;border-color:#e09a9a}
   .btn:disabled{color:#aab5c0;cursor:default;background:#fff;border-color:var(--line)}
+  .btn:disabled:hover{background:#fff;border-color:var(--line)}
   .field{width:100%;background:var(--field);border:1px solid var(--line);border-radius:6px;padding:6px 8px;color:var(--ink);font-size:13px}
   .field:focus{outline:2px solid #4cacdc66;border-color:#4cacdc;background:#fff}
   select.field{background:#fff}
@@ -56,6 +57,7 @@
   .ibtn:hover{background:#dde6ef;color:var(--ink)}
   .handle{position:absolute;width:14px;height:14px;background:#fff;border:2px solid var(--blue);border-radius:3px}
   #stageArea.drag{outline:3px dashed #4cacdc;outline-offset:-6px}
+  .kbd{font-family:inherit;background:var(--field);border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--ink);white-space:nowrap}
   .font-cur{color:var(--navy);font-weight:700;background:#e3f0fa}
 </style>
 </head>
@@ -69,6 +71,10 @@
     <div class="sub">縦長・横長のPOPに、文字・画像・飾り罫を配置してJPEGで保存</div>
   </div>
   <div class="hbtns">
+    <div class="flex items-center gap-1">
+      <button id="btnUndo" class="btn" title="元に戻す (⌘Z / Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+      <button id="btnRedo" class="btn" title="やり直し (⇧⌘Z / Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+    </div>
     <button id="btnOrient" class="btn" title="縦長/横長を切り替え"><i class="fa-solid fa-rotate"></i><span id="orientLabel">縦長 29.7×90</span></button>
     <div class="flex items-center gap-1">
       <button id="btnZoomOut" class="btn" title="縮小"><i class="fa-solid fa-minus"></i></button>
@@ -221,6 +227,11 @@
     <section class="sec">
       <div class="sec-t"><span class="sn">6</span>レイヤー（上が前面）</div>
       <div id="layerList" class="space-y-1"></div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-t"><span class="sn">7</span>ショートカット</div>
+      <div class="space-y-1 text-xs text-[#5a6b7b]"><div class="flex justify-between gap-2"><span>コピー</span><kbd class="kbd">⌘/Ctrl + C</kbd></div><div class="flex justify-between gap-2"><span>カット</span><kbd class="kbd">⌘/Ctrl + X</kbd></div><div class="flex justify-between gap-2"><span>貼り付け（画像・スクショも可）</span><kbd class="kbd">⌘/Ctrl + V</kbd></div><div class="flex justify-between gap-2"><span>複製</span><kbd class="kbd">⌘/Ctrl + D</kbd></div><div class="flex justify-between gap-2"><span>すべて選択</span><kbd class="kbd">⌘/Ctrl + A</kbd></div><div class="flex justify-between gap-2"><span>元に戻す</span><kbd class="kbd">⌘/Ctrl + Z</kbd></div><div class="flex justify-between gap-2"><span>やり直し</span><kbd class="kbd">⇧ + ⌘/Ctrl + Z</kbd></div><div class="flex justify-between gap-2"><span>削除</span><kbd class="kbd">Delete</kbd></div><div class="flex justify-between gap-2"><span>1px移動（Shiftで10px）</span><kbd class="kbd">矢印キー</kbd></div><div class="flex justify-between gap-2"><span>前面へ / 背面へ（Shiftで最前面/最背面）</span><kbd class="kbd">⌘/Ctrl + ] / [</kbd></div><div class="flex justify-between gap-2"><span>選択解除</span><kbd class="kbd">Esc</kbd></div></div>
     </section>
   </aside>
 
@@ -758,7 +769,7 @@
     const cur = fontList.querySelector('.font-cur'); if (cur) cur.scrollIntoView({ block: 'center' });
   };
   document.addEventListener('mousedown', e => { if (!e.target.closest('#fontDD')) closeFontList(false); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFontList(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !fontList.classList.contains('hidden')) { closeFontList(false); e.stopImmediatePropagation(); } });
   $('#tText').oninput = e => updateText({ text: e.target.value });
   $('#tSize').oninput = e => { const v = parseFloat(e.target.value); if (v >= 8) updateText({ fontSize: v }); };
   $('#tColor').oninput = e => updateText({ fill: e.target.value });
@@ -841,13 +852,158 @@
       });
     }
   };
+  // ---------- コピー&ペースト / ショートカット / 元に戻す ----------
+  const typing = e => { const t = e.target; return !!t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable); };
+  const cropOpen = () => !$('#cropModal').classList.contains('hidden');
+  let clip = [], pasteN = 0;
+
+  // 選択中のオブジェクトを内部クリップボードへ（見た目の絶対位置・角度・拡大率ごと保存）
+  function copyObjects() {
+    const objs = canvas.getActiveObjects(); if (!objs.length) return null;
+    clip = []; pasteN = 0;
+    objs.forEach(o => {
+      const q = fabric.util.qrDecompose(o.calcTransformMatrix());
+      const e = { cx: q.translateX, cy: q.translateY, angle: q.angle, sx: Math.abs(q.scaleX), sy: Math.abs(q.scaleY), flipX: o.flipX, flipY: o.flipY, opacity: o.opacity };
+      if (o.popData) { e.kind = 'text'; e.data = JSON.parse(JSON.stringify(o.popData)); }
+      else if (o.ruleData) { e.kind = 'rule'; e.data = { ...o.ruleData }; }
+      else { e.kind = 'obj'; e.p = new Promise(res => o.clone(c => { e.obj = c; res(); }, ['layerName'])); }
+      clip.push(e);
+    });
+    return Promise.all(clip.map(e => e.p || null));
+  }
+  function pasteObjects() {
+    if (!clip.length) return;
+    const list = clip.slice(); pasteN++;
+    const off = 24 * pasteN;
+    Promise.all(list.map(e => e.p || null)).then(() => {
+      const made = new Array(list.length); let pending = list.length;
+      const done = () => {
+        if (--pending) return;
+        const objs = made.filter(Boolean); if (!objs.length) return;
+        canvas.discardActiveObject(); objs.forEach(o => canvas.add(o));
+        canvas.setActiveObject(objs.length === 1 ? objs[0] : new fabric.ActiveSelection(objs, { canvas }));
+        canvas.requestRenderAll();
+      };
+      list.forEach((e, i) => {
+        const fin = o => {
+          o.set({ angle: e.angle, scaleX: e.sx, scaleY: e.sy, flipX: e.flipX, flipY: e.flipY, opacity: e.opacity });
+          moveCenter(o, e.cx + off, e.cy + off); made[i] = o; done();
+        };
+        if (e.kind === 'text') fin(createTextObj(JSON.parse(JSON.stringify(e.data))));
+        else if (e.kind === 'rule') fin(createRuleObj({ ...e.data }));
+        else if (e.obj) e.obj.clone(c => fin(c), ['layerName']);
+        else done();
+      });
+    });
+  }
+  document.addEventListener('copy', e => {
+    if (typing(e) || cropOpen()) return;
+    if (copyObjects()) { e.preventDefault(); e.clipboardData.setData('text/plain', 'POP-DESIGNER'); toast('コピーしました'); }
+  });
+  document.addEventListener('cut', e => {
+    if (typing(e) || cropOpen()) return;
+    if (copyObjects()) { e.preventDefault(); e.clipboardData.setData('text/plain', 'POP-DESIGNER'); deleteActive(); toast('カットしました'); }
+  });
+  document.addEventListener('paste', async e => {
+    if (typing(e) || cropOpen()) return;
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length) { // 他アプリでコピーした画像（スクショ等）もそのまま貼り付け
+      e.preventDefault();
+      const items = await readFiles(files);
+      for (const it of items) await addImage(it.src, W / 2, H / 2, it.name);
+      return;
+    }
+    if (clip.length) { e.preventDefault(); pasteObjects(); }
+  });
+  function selectAll() {
+    const objs = canvas.getObjects(); if (!objs.length) return;
+    canvas.discardActiveObject();
+    canvas.setActiveObject(objs.length === 1 ? objs[0] : new fabric.ActiveSelection(objs, { canvas }));
+    canvas.requestRenderAll();
+  }
+  function duplicateSelection() { const p = copyObjects(); if (p) p.then(() => { pasteN = 0; pasteObjects(); }); }
+
+  // ---- 元に戻す / やり直し（キャンバスの状態をスナップショットで保存）----
+  const HP = ['popData', 'ruleData', 'layerName', 'lockUniScaling'];
+  const hist = { stack: [], idx: -1, lock: false, cur: '', t: 0 };
+  const srcMap = new Map(), srcRev = [];
+  function tokenize(x) { // 大きな data URL は重複保存しない
+    if (Array.isArray(x)) x.forEach(tokenize);
+    else if (x && typeof x === 'object') for (const k in x) {
+      if (k === 'src' && typeof x[k] === 'string' && x[k].startsWith('data:')) {
+        if (!srcMap.has(x[k])) { srcMap.set(x[k], srcRev.length); srcRev.push(x[k]); }
+        x[k] = '#img' + srcMap.get(x[k]);
+      } else tokenize(x[k]);
+    }
+  }
+  function detokenize(x) {
+    if (Array.isArray(x)) x.forEach(detokenize);
+    else if (x && typeof x === 'object') for (const k in x) {
+      if (k === 'src' && typeof x[k] === 'string' && x[k].startsWith('#img')) x[k] = srcRev[+x[k].slice(4)];
+      else detokenize(x[k]);
+    }
+  }
+  const snapshot = () => { const json = canvas.toJSON(HP); tokenize(json); return JSON.stringify({ orient, json }); };
+  function updateHistBtns() { $('#btnUndo').disabled = hist.idx <= 0; $('#btnRedo').disabled = hist.idx >= hist.stack.length - 1; }
+  function pushHistory() {
+    if (hist.lock) return;
+    const snap = snapshot(); if (snap === hist.cur) return;
+    hist.cur = snap; hist.stack = hist.stack.slice(0, hist.idx + 1); hist.stack.push(snap);
+    if (hist.stack.length > 40) hist.stack.shift();
+    hist.idx = hist.stack.length - 1; updateHistBtns();
+  }
+  const commitSoon = () => { if (hist.lock) return; clearTimeout(hist.t); hist.t = setTimeout(pushHistory, 500); };
+  canvas.on('after:render', commitSoon);
+  ['object:added', 'object:removed', 'object:modified', 'text:changed'].forEach(ev => canvas.on(ev, commitSoon));
+  function fixControls(o) {
+    if (o.popData) { o.lockUniScaling = true; o.setControlsVisibility({ mt: false, mb: false, ml: false, mr: false }); }
+    if (o.ruleData) o.setControlsVisibility({ tl: false, tr: false, bl: false, br: false, mt: false, mb: false, ml: true, mr: true, mtr: true });
+  }
+  function restoreHistory(i) {
+    const st = JSON.parse(hist.stack[i]); detokenize(st.json);
+    hist.lock = true; busy = true; hist.idx = i;
+    orient = st.orient; [W, H] = SIZES[orient]; updateOrientBtn();
+    canvas.loadFromJSON(st.json, () => {
+      canvas.getObjects().forEach(fixControls);
+      const bg = canvas.backgroundColor; if (/^#[0-9a-f]{6}$/i.test(bg)) { $('#bgColor').value = bg; $('#bgHex').value = bg.toUpperCase(); }
+      if (fitMode) fit(); else applyZoom(zoom);
+      canvas.requestRenderAll(); busy = false; hist.lock = false; hist.cur = snapshot(); updateHistBtns(); sync();
+    });
+  }
+  function undo() { clearTimeout(hist.t); pushHistory(); if (hist.idx > 0) restoreHistory(hist.idx - 1); }
+  function redo() { clearTimeout(hist.t); pushHistory(); if (hist.idx < hist.stack.length - 1) restoreHistory(hist.idx + 1); }
+  $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
+
+  // ---- キーボードショートカット ----
   document.addEventListener('keydown', e => {
-    const tag = (document.activeElement?.tagName || '').toLowerCase();
-    if (e.key === 'Escape' && !$('#cropModal').classList.contains('hidden')) { closeCrop(); return; }
-    if (!['Delete', 'Backspace'].includes(e.key) || ['input', 'textarea', 'select'].includes(tag)) return;
-    const o = canvas.getActiveObject(); if (o && o.isEditing) return;
-    if (!$('#cropModal').classList.contains('hidden')) return;
-    e.preventDefault(); deleteActive();
+    if (e.key === 'Escape') {
+      if (cropOpen()) { closeCrop(); return; }
+      if (!typing(e)) { canvas.discardActiveObject(); canvas.requestRenderAll(); }
+      return;
+    }
+    if (cropOpen() || typing(e)) return;
+    const ao = canvas.getActiveObject();
+    if (ao && ao.isEditing) return;
+    const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    if (mod) { // コピー/カット/貼り付けは copy/cut/paste イベントで処理
+      if (k === 'a') { e.preventDefault(); selectAll(); }
+      else if (k === 'd') { e.preventDefault(); duplicateSelection(); }
+      else if (k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+      else if (k === 'y') { e.preventDefault(); redo(); }
+      else if ((e.key === ']' || e.key === '[') && ao && ao.type !== 'activeSelection') {
+        e.preventDefault();
+        const f = e.key === ']' ? (e.shiftKey ? canvas.bringToFront : canvas.bringForward) : (e.shiftKey ? canvas.sendToBack : canvas.sendBackwards);
+        f.call(canvas, ao); canvas.requestRenderAll(); renderLayers();
+      }
+      return;
+    }
+    if (['Delete', 'Backspace'].includes(e.key)) { if (ao) { e.preventDefault(); deleteActive(); } return; }
+    if (k.startsWith('arrow') && ao) { // 矢印キーで1px移動（Shiftで10px）
+      e.preventDefault();
+      const st = e.shiftKey ? 10 : 1;
+      ao.set({ left: ao.left + (k === 'arrowleft' ? -st : k === 'arrowright' ? st : 0), top: ao.top + (k === 'arrowup' ? -st : k === 'arrowdown' ? st : 0) });
+      ao.setCoords(); canvas.requestRenderAll(); canvas.fire('object:modified', { target: ao });
+    }
   });
 
   // ---------- 飾り罫 ----------
@@ -1099,7 +1255,7 @@
   // ---------- 起動 ----------
   FONTS.forEach(([f]) => document.fonts.load(`400 20px "${f}"`, 'あア日本ABC').catch(() => {}));
   document.fonts.ready.then(() => canvas.requestRenderAll());
-  updateOrientBtn(); renderLibrary(); fit(); sync();
+  updateOrientBtn(); renderLibrary(); fit(); sync(); pushHistory();
 })();
 </script>
 </body>

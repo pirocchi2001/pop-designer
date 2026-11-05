@@ -57,6 +57,28 @@
   .choice span.d{font-size:11.5px;color:var(--sub)}
   .choice .ic{flex:none;display:flex;align-items:center;justify-content:center;width:52px;height:52px}
   .choice .sheet{background:#fff;border:2px solid var(--navy);border-radius:2px}
+  #cropBox, #cropBox *{touch-action:none}
+  @media (max-width: 767px) {
+    .app-header{padding:6px 10px 10px;gap:6px}
+    .app-header .logo{height:28px;padding-right:10px}
+    .app-header .logo img{height:28px}
+    .app-header .ttl .sub{display:none}
+    .app-header .ttl h1{font-size:14px}
+    .hbtns{margin-left:0;width:100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;gap:6px}
+    .hbtns > *{flex:none}
+    .hbtns .btn{padding:6px 9px}
+    #paperSel,#btnOrient,#zoomLabel,.hide-sm{display:none}
+    #btnFit{font-size:0} #btnFit i{font-size:14px}
+    .menu-link{font-size:0} .menu-link::before{content:'🏠';font-size:16px}
+    .mainrow{flex-direction:column}
+    #stageArea{order:1;flex:none;height:46vh;border-left:0;border-bottom:1px solid var(--line)}
+    #sidebar{order:2;flex:1;min-height:0;width:100%}
+    #canvasHolder{padding:10px}
+    .field,textarea.field,input[type=text],input[type=number]{font-size:16px}
+    .btn{min-height:38px}
+    .pill .dot{width:30px;height:30px}
+    .kbd-sec{display:none}
+  }
   .sn{width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:14px;flex:none}
   .lbl{font-size:12px;color:var(--sub);margin-bottom:2px;display:block}
   input[type=color]{width:44px;height:34px;padding:2px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}
@@ -103,12 +125,12 @@
       <button id="btnZoomIn" class="btn" title="拡大"><i class="fa-solid fa-plus"></i></button>
       <button id="btnFit" class="btn" title="画面にフィット"><i class="fa-solid fa-expand"></i> フィット</button>
     </div>
-    <a class="btn" href="https://pirocchi2001.github.io/sagyo-tool/">🏠 メニュー</a>
-    <button id="btnExport" class="btn btn-primary"><i class="fa-solid fa-download"></i> <span id="exLabel">JPEG書き出し (2x)</span></button>
+    <a class="btn menu-link" href="https://pirocchi2001.github.io/sagyo-tool/">🏠 メニュー</a>
+    <button id="btnExport" class="btn btn-primary"><i class="fa-solid fa-download"></i> <span id="exLabel">JPEG書き出し<span class="hide-sm"> (2x)</span></span></button>
   </div>
 </header>
 
-<div class="flex flex-1 min-h-0">
+<div class="flex flex-1 min-h-0 mainrow">
   <!-- 左サイドバー -->
   <aside class="w-[340px] shrink-0 overflow-y-auto p-3" id="sidebar">
     <div class="stepbar">
@@ -184,7 +206,7 @@
       <div class="sec-t">画像ライブラリ</div>
       <input type="file" id="fileInput" accept="image/*" multiple class="hidden">
       <button id="btnUpload" class="btn w-full mb-2 py-2"><i class="fa-solid fa-upload"></i> 画像をアップロード（複数可）</button>
-      <p class="text-xs font-bold text-[#173a5c] mb-2"><i class="fa-solid fa-hand-pointer"></i> 編集中の画像にドラッグ＆ドロップして配置</p>
+      <p class="text-xs font-bold text-[#173a5c] mb-2"><i class="fa-solid fa-hand-pointer"></i> 編集中の画像にドラッグ＆ドロップして配置（スマホはタップで中央に配置）</p>
       <div id="libGrid" class="grid grid-cols-3 gap-2"></div>
       <p id="libEmpty" class="text-xs text-[#5a6b7b]">画像をここに追加し、キャンバスへドラッグ＆ドロップ（クリックで中央配置）。外部ファイルを直接キャンバスへ落とすこともできます。</p>
     </section>
@@ -316,7 +338,7 @@
       <div id="layerList" class="space-y-1"></div>
     </section>
 
-    <section class="sec" data-step="6">
+    <section class="sec kbd-sec" data-step="6">
       <div class="sec-t">ショートカット</div>
       <div class="space-y-1 text-xs text-[#5a6b7b]"><div class="flex justify-between gap-2"><span>コピー</span><kbd class="kbd">⌘/Ctrl + C</kbd></div><div class="flex justify-between gap-2"><span>カット</span><kbd class="kbd">⌘/Ctrl + X</kbd></div><div class="flex justify-between gap-2"><span>貼り付け（画像・スクショも可）</span><kbd class="kbd">⌘/Ctrl + V</kbd></div><div class="flex justify-between gap-2"><span>複製</span><kbd class="kbd">⌘/Ctrl + D</kbd></div><div class="flex justify-between gap-2"><span>すべて選択</span><kbd class="kbd">⌘/Ctrl + A</kbd></div><div class="flex justify-between gap-2"><span>元に戻す</span><kbd class="kbd">⌘/Ctrl + Z</kbd></div><div class="flex justify-between gap-2"><span>やり直し</span><kbd class="kbd">⇧ + ⌘/Ctrl + Z</kbd></div><div class="flex justify-between gap-2"><span>ドラッグでコピー</span><kbd class="kbd">Ctrl/Option + ドラッグ</kbd></div><div class="flex justify-between gap-2"><span>削除</span><kbd class="kbd">Delete</kbd></div><div class="flex justify-between gap-2"><span>1px移動（Shiftで10px）</span><kbd class="kbd">矢印キー</kbd></div><div class="flex justify-between gap-2"><span>前面へ / 背面へ（Shiftで最前面/最背面）</span><kbd class="kbd">⌘/Ctrl + ] / [</kbd></div><div class="flex justify-between gap-2"><span>選択解除</span><kbd class="kbd">Esc</kbd></div></div>
     </section>
@@ -404,7 +426,7 @@
   // ---------- Fabric 初期化 ----------
   fabric.Object.prototype.set({
     transparentCorners: false, cornerColor: '#ffffff', cornerStrokeColor: '#409edc',
-    cornerStyle: 'circle', cornerSize: 12, borderColor: '#409edc', borderScaleFactor: 1.5, padding: 2
+    cornerStyle: 'circle', cornerSize: matchMedia('(pointer: coarse)').matches ? 22 : 12, touchCornerSize: 44, borderColor: '#409edc', borderScaleFactor: 1.5, padding: 2
   });
   const canvas = new fabric.Canvas('c', {
     width: W, height: H, backgroundColor: '#ffffff', preserveObjectStacking: true,
@@ -449,7 +471,7 @@
     $('#orientLabel').textContent = orient === 'portrait' ? '縦長' : '横長';
     $('#paperSel').value = paper;
     updateStepCards();
-    $('#exLabel').textContent = `JPEG書き出し (${paper === 'a3' ? 3 : 2}x)`;
+    $('#exLabel').innerHTML = `JPEG書き出し<span class="hide-sm"> (${paper === 'a3' ? 3 : 2}x)</span>`;
   }
   function resizePaper() {
     [W, H] = sizeOf(paper, orient);
@@ -1536,7 +1558,7 @@
     m.style.cssText = 'position:fixed;inset:0;z-index:100;background:rgba(31,45,61,.55);display:flex;align-items:center;justify-content:center;padding:16px';
     m.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;max-height:92vh;display:flex;flex-direction:column;gap:12px;padding:18px;font-family:'Noto Sans JP',sans-serif;color:#14212e">
       <div style="font-weight:700;font-size:15px">書き出し完了（${(size / 1048576).toFixed(1)}MB）</div>
-      <div style="font-size:12.5px;color:#5a6b7b;line-height:1.7">下の「保存する」を押してください。Chromeに「ダウンロードをブロック」と出た場合は、許可するか、画像を右クリック→「名前を付けて画像を保存」で保存できます。</div>
+      <div style="font-size:12.5px;color:#5a6b7b;line-height:1.7">下の「保存する」を押してください。Chromeに「ダウンロードをブロック」と出た場合は、許可するか、画像を長押し（PCでは右クリック）→「画像を保存」で保存できます。</div>
       <div style="flex:1;min-height:0;overflow:auto;background:#eaf0f6;border-radius:8px;text-align:center;padding:8px"><img src="${u}" style="max-height:48vh;max-width:100%;box-shadow:0 1px 6px rgba(0,0,0,.25)"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button id="exClose" class="btn">閉じる</button>

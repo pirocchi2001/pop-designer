@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>29.7×90cm POP Designer Pro</title>
+<title>POP Designer Pro（29.7×90cm / A3）</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -67,7 +67,7 @@
 <header class="app-header">
   <div class="logo"><img src="logo-toylopark.webp" alt="TOYLO PARK"></div>
   <div class="ttl">
-    <h1>POP作成（29.7×90cm）</h1>
+    <h1>POP作成</h1>
     <div class="sub">縦長・横長のPOPに、文字・画像・飾り罫を配置してJPEGで保存</div>
   </div>
   <div class="hbtns">
@@ -75,7 +75,11 @@
       <button id="btnUndo" class="btn" title="元に戻す (⌘Z / Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
       <button id="btnRedo" class="btn" title="やり直し (⇧⌘Z / Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
     </div>
-    <button id="btnOrient" class="btn" title="縦長/横長を切り替え"><i class="fa-solid fa-rotate"></i><span id="orientLabel">縦長 29.7×90</span></button>
+    <select id="paperSel" class="field" style="width:auto;padding:6px 8px" title="用紙サイズ">
+      <option value="pop">POP 29.7×90cm</option>
+      <option value="a3">A3 29.7×42cm</option>
+    </select>
+    <button id="btnOrient" class="btn" title="縦長/横長を切り替え"><i class="fa-solid fa-rotate"></i><span id="orientLabel">縦長</span></button>
     <div class="flex items-center gap-1">
       <button id="btnZoomOut" class="btn" title="縮小"><i class="fa-solid fa-minus"></i></button>
       <span id="zoomLabel" class="w-12 text-center text-xs tabular-nums">100%</span>
@@ -83,7 +87,7 @@
       <button id="btnFit" class="btn" title="画面にフィット"><i class="fa-solid fa-expand"></i> フィット</button>
     </div>
     <a class="btn" href="https://pirocchi2001.github.io/sagyo-tool/">🏠 メニュー</a>
-    <button id="btnExport" class="btn btn-primary"><i class="fa-solid fa-download"></i> JPEG書き出し (2x)</button>
+    <button id="btnExport" class="btn btn-primary"><i class="fa-solid fa-download"></i> <span id="exLabel">JPEG書き出し (2x)</span></button>
   </div>
 </header>
 
@@ -301,10 +305,12 @@
     ['DotGothic16', 'ドット (DotGothic16)'],
     ['Yusei Magic', 'マジック (Yusei Magic)']
   ];
-  const SIZES = { portrait: [594, 1800], landscape: [1800, 594] };
+  const PAPERS = { pop: { w: 594, h: 1800, name: '29.7x90cm', cm: ['29.7', '90'] }, a3: { w: 594, h: 840, name: 'A3', cm: ['29.7', '42'] } };
+  let paper = 'pop';
+  const sizeOf = (pp, o) => { const q = PAPERS[pp] || PAPERS.pop; return o === 'landscape' ? [q.h, q.w] : [q.w, q.h]; };
 
   let orient = 'portrait';
-  let [W, H] = SIZES.portrait;
+  let [W, H] = sizeOf('pop', 'portrait');
   let zoom = 1, fitMode = true, busy = false;
   let library = []; // {id, src, name}
   let libSeq = 0;
@@ -354,17 +360,20 @@
 
   // ---------- 縦横切替 ----------
   function updateOrientBtn() {
-    $('#orientLabel').textContent = orient === 'portrait' ? '縦長 29.7×90' : '横長 90×29.7';
+    $('#orientLabel').textContent = orient === 'portrait' ? '縦長' : '横長';
+    $('#paperSel').value = paper;
+    $('#exLabel').textContent = `JPEG書き出し (${paper === 'a3' ? 3 : 2}x)`;
   }
-  $('#btnOrient').onclick = () => {
-    orient = orient === 'portrait' ? 'landscape' : 'portrait';
-    [W, H] = SIZES[orient];
+  function resizePaper() {
+    [W, H] = sizeOf(paper, orient);
     canvas.discardActiveObject();
     canvas.getObjects().forEach(o => { // 範囲外に出たオブジェクトを新しい用紙内へ戻す
       const c = o.getCenterPoint(); moveCenter(o, clamp(c.x, 0, W), clamp(c.y, 0, H));
     });
     updateOrientBtn(); fit(); sync();
-  };
+  }
+  $('#paperSel').onchange = e => { paper = e.target.value; resizePaper(); };
+  $('#btnOrient').onclick = () => { orient = orient === 'portrait' ? 'landscape' : 'portrait'; resizePaper(); };
 
   // ---------- 背景色 ----------
   function setBg(c) {
@@ -944,14 +953,14 @@
       else detokenize(x[k]);
     }
   }
-  const snapshot = () => { const json = canvas.toJSON(HP); tokenize(json); return JSON.stringify({ orient, json }); };
+  const snapshot = () => { const json = canvas.toJSON(HP); tokenize(json); return JSON.stringify({ orient, paper, json }); };
   function updateHistBtns() { $('#btnUndo').disabled = hist.idx <= 0; $('#btnRedo').disabled = hist.idx >= hist.stack.length - 1; }
   function pushHistory() {
     if (hist.lock) return;
     const snap = snapshot(); if (snap === hist.cur) return;
     hist.cur = snap; hist.stack = hist.stack.slice(0, hist.idx + 1); hist.stack.push(snap);
     if (hist.stack.length > 40) hist.stack.shift();
-    hist.idx = hist.stack.length - 1; updateHistBtns();
+    hist.idx = hist.stack.length - 1; updateHistBtns(); autosave();
   }
   const commitSoon = () => { if (hist.lock) return; clearTimeout(hist.t); hist.t = setTimeout(pushHistory, 500); };
   canvas.on('after:render', commitSoon);
@@ -963,7 +972,7 @@
   function restoreHistory(i) {
     const st = JSON.parse(hist.stack[i]); detokenize(st.json);
     hist.lock = true; busy = true; hist.idx = i;
-    orient = st.orient; [W, H] = SIZES[orient]; updateOrientBtn();
+    orient = st.orient; paper = st.paper || 'pop'; [W, H] = sizeOf(paper, orient); updateOrientBtn();
     canvas.loadFromJSON(st.json, () => {
       canvas.getObjects().forEach(fixControls);
       const bg = canvas.backgroundColor; if (/^#[0-9a-f]{6}$/i.test(bg)) { $('#bgColor').value = bg; $('#bgHex').value = bg.toUpperCase(); }
@@ -974,6 +983,73 @@
   function undo() { clearTimeout(hist.t); pushHistory(); if (hist.idx > 0) restoreHistory(hist.idx - 1); }
   function redo() { clearTimeout(hist.t); pushHistory(); if (hist.idx < hist.stack.length - 1) restoreHistory(hist.idx + 1); }
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
+
+  // ---- 自動保存（ブラウザに保存し、次回開いたときに復元）----
+  const SAVE_KEY = 'popDesigner.autosave.v1';
+  let saveT = 0;
+  function autosave() {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify({ orient, paper, json: canvas.toJSON(HP) })); }
+      catch (e) { /* 容量超過などは無視 */ }
+    }, 800);
+  }
+  function loadAutosave() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY); if (!raw) return false;
+      const st = JSON.parse(raw); if (!st.json || !(st.json.objects || []).length) return false;
+      hist.lock = true; busy = true;
+      orient = st.orient === 'landscape' ? 'landscape' : 'portrait'; paper = st.paper in PAPERS ? st.paper : 'pop'; [W, H] = sizeOf(paper, orient); updateOrientBtn();
+      canvas.loadFromJSON(st.json, () => {
+        canvas.getObjects().forEach(fixControls);
+        const bg = canvas.backgroundColor; if (/^#[0-9a-f]{6}$/i.test(bg)) { $('#bgColor').value = bg; $('#bgHex').value = bg.toUpperCase(); }
+        if (fitMode) fit(); else applyZoom(zoom);
+        canvas.requestRenderAll(); busy = false; hist.lock = false; hist.cur = ''; pushHistory(); sync();
+        toast('前回の作業を復元しました');
+      });
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---- スナップガイド（キャンバス中央・端に吸着）----
+  let guides = [];
+  canvas.on('object:moving', e => {
+    const o = e.target; if (!o) return;
+    const th = 8 / zoom, r = o.getBoundingRect(true, true);
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    guides = [];
+    const trySnap = (vals, target, axis) => {
+      for (const v of vals) if (Math.abs(v.p - target) < th) {
+        if (axis === 'x') o.left += target - v.p; else o.top += target - v.p;
+        guides.push({ axis, pos: target }); return;
+      }
+    };
+    trySnap([{ p: cx }, { p: r.left }, { p: r.left + r.width }], W / 2, 'x');
+    trySnap([{ p: cy }, { p: r.top }, { p: r.top + r.height }], H / 2, 'y');
+    trySnap([{ p: r.left }], 0, 'x'); trySnap([{ p: r.left + r.width }], W, 'x');
+    trySnap([{ p: r.top }], 0, 'y'); trySnap([{ p: r.top + r.height }], H, 'y');
+  });
+  canvas.on('after:render', () => {
+    if (!guides.length) return;
+    const ctx = canvas.getContext(); ctx.save();
+    ctx.strokeStyle = '#e8368f'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
+    guides.forEach(g => {
+      ctx.beginPath();
+      if (g.axis === 'x') { ctx.moveTo(g.pos * zoom, 0); ctx.lineTo(g.pos * zoom, H * zoom); }
+      else { ctx.moveTo(0, g.pos * zoom); ctx.lineTo(W * zoom, g.pos * zoom); }
+      ctx.stroke();
+    });
+    ctx.restore();
+  });
+  const clearGuides = () => { if (guides.length) { guides = []; canvas.requestRenderAll(); } };
+  canvas.on('mouse:up', clearGuides);
+
+  // ---- Ctrl/⌘ + ホイールでズーム ----
+  $('#stageArea').addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault(); fitMode = false;
+    applyZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, { passive: false });
 
   // ---- キーボードショートカット ----
   document.addEventListener('keydown', e => {
@@ -1262,12 +1338,12 @@
       canvas.setZoom(1); canvas.setDimensions({ width: W, height: H });
       canvas.renderAll();
       // 白背景のキャンバスに合成してからJPEG化（透過部分が黒くならないように）
-      const src = canvas.toCanvasElement(2);
+      const src = canvas.toCanvasElement(paper === 'a3' ? 3 : 2);
       const out = document.createElement('canvas'); out.width = src.width; out.height = src.height;
       const cx = out.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, out.width, out.height); cx.drawImage(src, 0, 0);
       const p = n => String(n).padStart(2, '0'), t = new Date();
       const stamp = `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`;
-      const name = `POP_29.7x90cm_${stamp}.jpg`;
+      const name = `POP_${PAPERS[paper].name}_${stamp}.jpg`;
       out.toBlob(blob => {
         if (!blob) { fail(new Error('画像を生成できませんでした')); return; }
         const u = URL.createObjectURL(blob);
@@ -1280,7 +1356,7 @@
   // ---------- 起動 ----------
   FONTS.forEach(([f]) => document.fonts.load(`400 20px "${f}"`, 'あア日本ABC').catch(() => {}));
   document.fonts.ready.then(() => canvas.requestRenderAll());
-  updateOrientBtn(); renderLibrary(); fit(); sync(); pushHistory();
+  updateOrientBtn(); renderLibrary(); fit(); sync(); if (!loadAutosave()) pushHistory();
 })();
 </script>
 </body>

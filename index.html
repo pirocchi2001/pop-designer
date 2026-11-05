@@ -1235,21 +1235,45 @@
   }
 
   // ---------- JPEG書き出し ----------
+  function showExportResult(u, name, size) {
+    let m = document.getElementById('exportModal'); if (m) m.remove();
+    m = document.createElement('div'); m.id = 'exportModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:100;background:rgba(31,45,61,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;max-height:92vh;display:flex;flex-direction:column;gap:12px;padding:18px;font-family:'Noto Sans JP',sans-serif;color:#14212e">
+      <div style="font-weight:700;font-size:15px">書き出し完了（${(size / 1048576).toFixed(1)}MB）</div>
+      <div style="font-size:12.5px;color:#5a6b7b;line-height:1.7">下の「保存する」を押してください。Chromeに「ダウンロードをブロック」と出た場合は、許可するか、画像を右クリック→「名前を付けて画像を保存」で保存できます。</div>
+      <div style="flex:1;min-height:0;overflow:auto;background:#eaf0f6;border-radius:8px;text-align:center;padding:8px"><img src="${u}" style="max-height:48vh;max-width:100%;box-shadow:0 1px 6px rgba(0,0,0,.25)"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="exClose" class="btn">閉じる</button>
+        <a id="exSave" class="btn btn-primary" href="${u}" download="${name}" style="text-decoration:none"><i class="fa-solid fa-download"></i> 保存する</a>
+      </div></div>`;
+    document.body.appendChild(m);
+    const close = () => { m.remove(); setTimeout(() => URL.revokeObjectURL(u), 1000); };
+    m.querySelector('#exClose').onclick = close;
+    m.addEventListener('mousedown', e => { if (e.target === m) close(); });
+  }
+
   $('#btnExport').onclick = () => {
     const prev = zoom;
+    const fail = err => { console.error(err); toast('書き出しに失敗しました: ' + (err && err.message ? err.message : err)); };
     try {
       canvas.discardActiveObject();
       canvas.setZoom(1); canvas.setDimensions({ width: W, height: H });
-      const url = canvas.toDataURL({ format: 'jpeg', quality: 0.95, multiplier: 2, enableRetinaScaling: false });
+      canvas.renderAll();
+      // 白背景のキャンバスに合成してからJPEG化（透過部分が黒くならないように）
+      const src = canvas.toCanvasElement(2);
+      const out = document.createElement('canvas'); out.width = src.width; out.height = src.height;
+      const cx = out.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, out.width, out.height); cx.drawImage(src, 0, 0);
       const p = n => String(n).padStart(2, '0'), t = new Date();
       const stamp = `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`;
-      const a = document.createElement('a');
-      a.href = url; a.download = `POP_29.7x90cm_${stamp}.jpg`;
-      document.body.appendChild(a); a.click(); a.remove();
-      toast('JPEGを書き出しました');
-    } catch (err) {
-      console.error(err); toast('書き出しに失敗しました（外部画像のCORS制限の可能性があります）');
-    } finally { applyZoom(prev); canvas.requestRenderAll(); }
+      const name = `POP_29.7x90cm_${stamp}.jpg`;
+      out.toBlob(blob => {
+        if (!blob) { fail(new Error('画像を生成できませんでした')); return; }
+        const u = URL.createObjectURL(blob);
+        showExportResult(u, name, blob.size);
+      }, 'image/jpeg', 0.95);
+    } catch (err) { fail(err); }
+    finally { applyZoom(prev); canvas.requestRenderAll(); }
   };
 
   // ---------- 起動 ----------

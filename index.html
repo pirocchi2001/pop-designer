@@ -58,6 +58,13 @@
   .choice .ic{flex:none;display:flex;align-items:center;justify-content:center;width:52px;height:52px}
   .choice .sheet{background:#fff;border:2px solid var(--navy);border-radius:2px}
   #cropBox, #cropBox *{touch-action:none}
+  #printArea{display:none}
+  @media print {
+    html, body { height: auto !important; overflow: visible !important; background: #fff !important; display: block !important; }
+    body > *:not(#printArea) { display: none !important; }
+    #printArea { display: block !important; }
+    #printArea img { display: block; margin: 0; padding: 0; border: 0; break-inside: avoid; page-break-inside: avoid; }
+  }
   @media (max-width: 767px) {
     .app-header{padding:6px 10px 10px;gap:6px}
     .app-header .logo{height:28px;padding-right:10px}
@@ -126,6 +133,7 @@
       <button id="btnFit" class="btn" title="画面にフィット"><i class="fa-solid fa-expand"></i> フィット</button>
     </div>
     <a class="btn menu-link" href="https://pirocchi2001.github.io/sagyo-tool/">🏠 メニュー</a>
+    <button id="btnPrint" class="btn" title="印刷（お使いのPCのプリンタドライバで印刷）"><i class="fa-solid fa-print"></i> <span class="hide-sm">印刷</span></button>
     <button id="btnExport" class="btn btn-primary"><i class="fa-solid fa-download"></i> <span id="exLabel">JPEG書き出し<span class="hide-sm"> (2x)</span></span></button>
   </div>
 </header>
@@ -1569,6 +1577,59 @@
     m.querySelector('#exClose').onclick = close;
     m.addEventListener('mousedown', e => { if (e.target === m) close(); });
   }
+
+  // ---------- 印刷（プリンタドライバに依存） ----------
+  const mmOf = () => { const q = PAPERS[paper]; const wmm = 297, hmm = paper === 'a3' ? 420 : 900; return orient === 'landscape' ? [hmm, wmm] : [wmm, hmm]; };
+  function renderForPrint(mult) {
+    const prev = zoom;
+    try {
+      canvas.discardActiveObject(); canvas.setZoom(1); canvas.setDimensions({ width: W, height: H }); canvas.renderAll();
+      const src = canvas.toCanvasElement(mult);
+      const out = document.createElement('canvas'); out.width = src.width; out.height = src.height;
+      const cx = out.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, out.width, out.height); cx.drawImage(src, 0, 0);
+      return out.toDataURL('image/jpeg', 0.92);
+    } finally { applyZoom(prev); canvas.requestRenderAll(); }
+  }
+  // 印刷用の要素と @page を用意（用紙サイズに合わせて余白なしで原寸出力）
+  function preparePrint() {
+    const [wmm, hmm] = mmOf();
+    const url = renderForPrint(paper === 'a3' ? 3 : 2);
+    let st = $('#pageStyle'); if (!st) { st = document.createElement('style'); st.id = 'pageStyle'; document.head.appendChild(st); }
+    st.textContent = `@page { size: ${wmm}mm ${hmm}mm; margin: 0; }`;
+    let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
+    pa.innerHTML = '';
+    const im = new Image(); im.style.width = wmm + 'mm'; im.style.height = hmm + 'mm';
+    pa.appendChild(im);
+    return new Promise(res => { im.onload = () => res(url); im.src = url; });
+  }
+  window.addEventListener('afterprint', () => { const pa = $('#printArea'); if (pa) pa.innerHTML = ''; });
+  function showPrintDialog() {
+    let m = $('#printModal'); if (m) m.remove();
+    const [wmm, hmm] = mmOf();
+    const url = renderForPrint(1);
+    m = document.createElement('div'); m.id = 'printModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:100;background:rgba(31,45,61,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    m.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;max-height:92vh;display:flex;flex-direction:column;gap:12px;padding:18px;font-family:'Noto Sans JP',sans-serif;color:#14212e">
+      <div style="font-weight:700;font-size:15px"><i class="fa-solid fa-print"></i> 印刷（${wmm / 10}×${hmm / 10}cm）</div>
+      <div style="font-size:12.5px;color:#5a6b7b;line-height:1.8">お使いのPCに入っているプリンタのドライバで印刷します。印刷画面（ダイアログ）で次のように設定してください。
+        <ul style="margin:4px 0 0 18px;list-style:disc">
+          <li>プリンタ：使うプリンタを選ぶ</li>
+          <li>用紙サイズ：<b style="color:#14212e">${wmm / 10}×${hmm / 10}cm</b>（ドライバにカスタム／ロール紙で登録）</li>
+          <li>倍率：<b style="color:#14212e">100%（実際のサイズ）</b>　・余白：<b style="color:#14212e">なし</b></li>
+          <li>「ヘッダーとフッター」はオフ</li>
+        </ul></div>
+      <div style="flex:1;min-height:0;overflow:auto;background:#eaf0f6;border-radius:8px;text-align:center;padding:8px"><img src="${url}" style="max-height:40vh;max-width:100%;box-shadow:0 1px 6px rgba(0,0,0,.25)"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="prClose" class="btn">閉じる</button>
+        <button id="prGo" class="btn btn-primary"><i class="fa-solid fa-print"></i> 印刷する</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const close = () => m.remove();
+    m.querySelector('#prClose').onclick = close;
+    m.addEventListener('mousedown', e => { if (e.target === m) close(); });
+    m.querySelector('#prGo').onclick = async () => { await preparePrint(); close(); setTimeout(() => window.print(), 50); };
+  }
+  $('#btnPrint').onclick = showPrintDialog;
 
   $('#btnExport').onclick = () => {
     const prev = zoom;
